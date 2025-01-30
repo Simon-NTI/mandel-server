@@ -1,0 +1,1 @@
+width, height, target_x_m, target_x_n, target_y_m, target_y_n, range, max_iteration, fragment_count

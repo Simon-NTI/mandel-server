@@ -4,23 +4,8 @@ import { Elysia } from "elysia";
 import { appendFile } from "node:fs/promises";
 
 function write_bigint_to_array(array: Uint8Array, writepos: number, value: bigint) {
-    // for (let i = 0; i < 8; i++) {
-    //     // THIS DOES NOT WORK BECAUSE JS SUCKS; PLZ FIX
-    //     // array[writepos + i] = ((Number(file_size) >> (i * 8)) & 0xff);
-
-    //     // nvm wrong variable lmao
-    //     array[writepos + i] = ((Number(value) >> (i * 8)) & 0xff);
-    // }
-
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-
-    view.setBigUint64(0, value)
-    const temp_array = new Uint8Array(buffer);
-
-    for (let i = 0; i < 8; i++) {
-        array[writepos + i] = temp_array[i];
-    }
+    const my_view = new DataView(array.buffer);
+    my_view.setUint32(writepos, Number(value), true);
 }
 
 let total_header_size = 54n;
@@ -31,9 +16,6 @@ let image_size = -1n;
 let color_count = 256n;
 let file_size = -1n;
 let image_data_offset = 54n + color_count * 4n;
-
-// TODO
-// Setup stream for post requests to buffer data
 
 console.log("Connecting Elysia...");
 
@@ -48,7 +30,8 @@ let target_x_n = -1n;
 let target_y_m = -1n;
 let target_y_n = -1n;
 
-let range = -1n;
+let range_m = -1n;
+let range_n = -1n;
 
 let max_iteration = -1n;
 
@@ -56,11 +39,6 @@ let expected_fragments = -1n;
 let recieved_fragments = -1;
 
 let fragments = [-1];
-
-// Fragment states:
-// 0 = Not sent
-// 1 = Sent, awaiting data
-// 2 = Recieved
 
 let working = false;
 let initializing = false;
@@ -95,28 +73,44 @@ const app = new Elysia()
                     resolve("");
                     break;
                 }
+                else {
+                    console.log("Not working, unable to resolve");
+                }
+
+                if (recieved_fragments >= expected_fragments) {
+                    resolve("")
+                    break;
+                }
 
                 await sleep(1000);
             }
         })
 
+        if (recieved_fragments >= expected_fragments) {
+            console.log("Unable to resolve, all fragments recieved");
+
+            const buffer = new ArrayBuffer(8);
+            const view = new DataView(buffer);
+
+            view.setBigUint64(0, BigInt(0xffffffffffffffffn), true);
+
+            console.log(`Stop signal ${view.getBigUint64(0, true)} sent`);
+
+            return view;
+        }
+
         for (let i = 0; i < expected_fragments; i++) {
             if (fragments[i] == 0) {
                 fragments[i] = 1;
 
-                // const buffer = new ArrayBuffer(8);
-                // const view = new DataView(buffer);
-
-                // const array = new Uint8Array(buffer);
-
                 const buffer = new ArrayBuffer(8);
-                const array = new BigUint64Array(buffer);
+                const view = new DataView(buffer);
 
-                array[0] = BigInt(i);
+                view.setBigUint64(0, BigInt(i), true);
 
-                console.log(`Fragment ${i} sent`);
+                console.log(`Fragment ${view.getBigUint64(0, true)} sent`);
 
-                return array;
+                return view;
             }
         }
     })
@@ -124,20 +118,15 @@ const app = new Elysia()
     .post("/fragment", async (context) => {
         console.log("----- POST FRAGMENT -----");
 
-        // Accumulate the incoming data chunks from the readable stream
-
-        // Combine chunks into a single Uint8Array
         // @ts-expect-error
 
         let data = new Uint8Array(context.body);
         let view = new DataView(data.buffer);
 
-        // TODO check if the client is sending the correct fragment num
-        // Update, the client sends the correct data, but the server always reads 0
-        // Then check if this handles incoming data the way I suspect
-        let fragment_i = view.getBigUint64(0);
+        let fragment_i = view.getBigUint64(0, true);
 
         data = data.slice(8);
+
         recieved_fragments++;
 
         console.log("Recieved fragment " + fragment_i);
@@ -146,8 +135,6 @@ const app = new Elysia()
 
         try {
             await Bun.write(`output/${fragment_i}.bmp`, data);
-
-            // console.log("Successfully wrote to file")
         }
         catch (err) {
             console.log("Write failed:");
@@ -155,19 +142,10 @@ const app = new Elysia()
         }
 
         if (recieved_fragments >= expected_fragments) {
-            const buffer = new ArrayBuffer(8);
-            const array = new Uint8Array(buffer);
-
-            for (let i = 0; i < 8; i++) {
-                array[i] = 0xff;
-                console.log(array[i]);
-            }
-
             working = false;
             initializing = false;
 
             finalize();
-            return array;
         }
     })
 
@@ -183,7 +161,7 @@ const app = new Elysia()
             }
         })
 
-        const buffer = new ArrayBuffer(72);
+        const buffer = new ArrayBuffer(80);
         const array = new BigUint64Array(buffer);
 
         array[0] = width;
@@ -192,9 +170,10 @@ const app = new Elysia()
         array[3] = target_x_n;
         array[4] = target_y_m;
         array[5] = target_y_n;
-        array[6] = range;
-        array[7] = max_iteration;
-        array[8] = expected_fragments;
+        array[6] = range_m;
+        array[7] = range_n;
+        array[8] = max_iteration;
+        array[9] = expected_fragments;
 
         return array;
     })
@@ -214,7 +193,6 @@ console.log(`Elysia connected, live on port ${app.server?.port}`);
 
 for await (const line of console) {
     if (line == "init") {
-        // Don't do any any processing, just ship the binary data straight to the clients to prevent any weird js witchcraft from occuring
 
         const f_params = Bun.file("params.txt");
         const params = (await f_params.text()).split(",");
@@ -228,11 +206,12 @@ for await (const line of console) {
         target_y_m = BigInt(params[4]);
         target_y_n = BigInt(params[5]);
 
-        range = BigInt(params[6]);
+        range_m = BigInt(params[6]);
+        range_n = BigInt(params[7]);
 
-        max_iteration = BigInt(params[7]);
+        max_iteration = BigInt(params[8]);
 
-        expected_fragments = BigInt(params[8]);
+        expected_fragments = BigInt(params[9]);
         recieved_fragments = 0;
 
         for (let i = 0; i < expected_fragments; i++) {
@@ -254,7 +233,6 @@ for await (const line of console) {
         array[1] = 0x4D;
 
         /* File size in bytes */
-        // write_ulong_to_bitmap(2, file_info.file_size);
 
         write_bigint_to_array(array, 2, file_size);
 

@@ -48,6 +48,8 @@ async function finalize() {
     for (let i = 0; i < expected_fragments; i++) {
         let fragment_data = Bun.file(`output/${i}.bmp`);
 
+        console.log(fragment_data.name);
+
         const buffer = await fragment_data.arrayBuffer();
         const array = new Uint8Array(buffer);
 
@@ -74,7 +76,7 @@ const app = new Elysia()
                     break;
                 }
                 else {
-                    console.log("Not working, unable to resolve");
+                    // console.log("Not working, unable to resolve");
                 }
 
                 if (recieved_fragments >= expected_fragments) {
@@ -87,7 +89,7 @@ const app = new Elysia()
         })
 
         if (recieved_fragments >= expected_fragments) {
-            console.log("Unable to resolve, all fragments recieved");
+            // console.log("Unable to resolve, all fragments recieved");
 
             const buffer = new ArrayBuffer(8);
             const view = new DataView(buffer);
@@ -95,6 +97,7 @@ const app = new Elysia()
             view.setBigUint64(0, BigInt(0xffffffffffffffffn), true);
 
             console.log(`Stop signal ${view.getBigUint64(0, true)} sent`);
+            console.log("----- GET RESPONSE ------")
 
             return view;
         }
@@ -110,6 +113,7 @@ const app = new Elysia()
 
                 console.log(`Fragment ${view.getBigUint64(0, true)} sent`);
 
+                console.log("------ GET RESPONSE ------")
                 return view;
             }
         }
@@ -126,6 +130,12 @@ const app = new Elysia()
         let fragment_i = view.getBigUint64(0, true);
 
         data = data.slice(8);
+
+        if (recieved_fragments >= expected_fragments) {
+            console.log("Request denied, task already finished")
+            console.log("Request attempted to send fragment " + fragment_i)
+            return;
+        }
 
         recieved_fragments++;
 

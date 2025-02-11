@@ -40,6 +40,12 @@ let recieved_fragments = -1;
 
 let fragments = [-1];
 
+const FragmentStates = {
+    NOT_SENT: 0,
+    SENT: 1,
+    RECIEVED: 2
+}
+
 let working = false;
 let initializing = false;
 
@@ -48,7 +54,7 @@ async function finalize() {
     for (let i = 0; i < expected_fragments; i++) {
         let fragment_data = Bun.file(`output/${i}.bmp`);
 
-        console.log(fragment_data.name);
+        // console.log(fragment_data.name);
 
         const buffer = await fragment_data.arrayBuffer();
         const array = new Uint8Array(buffer);
@@ -97,14 +103,14 @@ const app = new Elysia()
             view.setBigUint64(0, BigInt(0xffffffffffffffffn), true);
 
             console.log(`Stop signal ${view.getBigUint64(0, true)} sent`);
-            console.log("----- GET RESPONSE ------")
+            console.log("----- GET RESPONSE ------\n")
 
             return view;
         }
 
         for (let i = 0; i < expected_fragments; i++) {
-            if (fragments[i] == 0) {
-                fragments[i] = 1;
+            if (fragments[i] == FragmentStates.NOT_SENT) {
+                fragments[i] = FragmentStates.SENT;
 
                 const buffer = new ArrayBuffer(8);
                 const view = new DataView(buffer);
@@ -113,10 +119,20 @@ const app = new Elysia()
 
                 console.log(`Fragment ${view.getBigUint64(0, true)} sent`);
 
-                console.log("------ GET RESPONSE ------")
+                console.log("------ GET RESPONSE ------\n")
                 return view;
             }
+
         }
+
+        const buffer = new ArrayBuffer(8);
+        const view = new DataView(buffer);
+
+        view.setBigUint64(0, BigInt(0xffffffffffffffffn), true);
+
+        console.log(`Stop signal ${view.getBigUint64(0, true)} sent`);
+        console.log("----- GET RESPONSE ------\n")
+        return view;
     })
 
     .post("/fragment", async (context) => {
@@ -133,11 +149,20 @@ const app = new Elysia()
 
         if (recieved_fragments >= expected_fragments) {
             console.log("Request denied, task already finished")
-            console.log("Request attempted to send fragment " + fragment_i)
+            console.log("Recieved fragment " + fragment_i)
+            console.log("----- POST RESPONSE -----\n");
+            return;
+        }
+
+        if (fragments[Number(fragment_i)] == 2) {
+            console.log("Request denied, fragment already recieved")
+            console.log("Recieved fragment " + fragment_i)
+            console.log("----- POST RESPONSE -----\n");
             return;
         }
 
         recieved_fragments++;
+        fragments[Number(fragment_i)] = FragmentStates.RECIEVED;
 
         console.log("Recieved fragment " + fragment_i);
         console.log("Total fragments: " + recieved_fragments);
@@ -156,7 +181,10 @@ const app = new Elysia()
             initializing = false;
 
             finalize();
+            console.log("----- POST RESPONSE -----\n");
+            return;
         }
+        console.log("----- POST RESPONSE -----\n");
     })
 
     .get("/init", async () => {

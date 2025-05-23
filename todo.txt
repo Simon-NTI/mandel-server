@@ -1,0 +1,10 @@
+Replace all buffer -> view -> view.setBigUint64 with a function
+Make verbose debugging an option, make runtime diagnostics more compact and readable
+Flush the output folder from all files except final.bmp
+Add a timer to measure elapsed time
+- Add timestamps for when a task was started, when a task ended and when a fragment was recieved
+Migrate from bigint?, a lot of unnecessary code and type casting is needed which adds complexity, find a better solution
+Find a way of tracking clients, i.e which clients are connected and which fragments have been sent to which client
+
+?? Find a better way of "trapping" clients waiting for a new fragment ??
+?? Rename final.bmp to {timestamp}.bmp ?? or maybe final_{timestamp}.bmp

@@ -8,6 +8,14 @@ function write_bigint_to_array(array: Uint8Array, writepos: number, value: bigin
     my_view.setUint32(writepos, Number(value), true);
 }
 
+function BigUint64_to_array() {
+    // TODO: Replace all buffer -> view -> view.setBigUint64 with this function
+}
+
+function get_time_now() {
+    return new Date(Date.now()).toLocaleTimeString();
+}
+
 let total_header_size = 54n;
 let bits_per_pixel = 8n;
 let padding = -1n;
@@ -19,7 +27,7 @@ let image_data_offset = 54n + color_count * 4n;
 
 console.log("Connecting Elysia...");
 
-let start_time;
+let start_time: number;
 
 let width = -1n;
 let height = -1n;
@@ -52,9 +60,7 @@ let initializing = false;
 async function finalize() {
     console.log("All fragments recieved, finalizing...");
     for (let i = 0; i < expected_fragments; i++) {
-        let fragment_data = Bun.file(`output/${i}.bmp`);
-
-        // console.log(fragment_data.name);
+        const fragment_data = Bun.file(`output/${i}.bmp`);
 
         const buffer = await fragment_data.arrayBuffer();
         const array = new Uint8Array(buffer);
@@ -63,6 +69,7 @@ async function finalize() {
     }
 
     console.log("Done.");
+    console.log("Time taken: " + Math.abs((start_time - Date.now())) / 1000);
 }
 
 const app = new Elysia()
@@ -73,16 +80,11 @@ const app = new Elysia()
     })
 
     .get("/fragment", async () => {
-        console.log("----- GET FRAGMENT -----");
-
         await new Promise(async (resolve) => {
             while (true) {
                 if (working) {
                     resolve("");
                     break;
-                }
-                else {
-                    // console.log("Not working, unable to resolve");
                 }
 
                 if (recieved_fragments >= expected_fragments) {
@@ -95,15 +97,12 @@ const app = new Elysia()
         })
 
         if (recieved_fragments >= expected_fragments) {
-            // console.log("Unable to resolve, all fragments recieved");
-
             const buffer = new ArrayBuffer(8);
             const view = new DataView(buffer);
 
             view.setBigUint64(0, BigInt(0xffffffffffffffffn), true);
 
-            console.log(`Stop signal ${view.getBigUint64(0, true)} sent`);
-            console.log("----- GET RESPONSE ------\n")
+            console.log(`Stop signal sent...`);
 
             return view;
         }
@@ -117,12 +116,10 @@ const app = new Elysia()
 
                 view.setBigUint64(0, BigInt(i), true);
 
-                console.log(`Fragment ${view.getBigUint64(0, true)} sent`);
+                console.log(get_time_now() + ` Fragment ${view.getBigUint64(0, true)} sent`);
 
-                console.log("------ GET RESPONSE ------\n")
                 return view;
             }
-
         }
 
         const buffer = new ArrayBuffer(8);
@@ -131,13 +128,10 @@ const app = new Elysia()
         view.setBigUint64(0, BigInt(0xffffffffffffffffn), true);
 
         console.log(`Stop signal ${view.getBigUint64(0, true)} sent`);
-        console.log("----- GET RESPONSE ------\n")
         return view;
     })
 
     .post("/fragment", async (context) => {
-        console.log("----- POST FRAGMENT -----");
-
         // @ts-expect-error
 
         let data = new Uint8Array(context.body);
@@ -150,23 +144,19 @@ const app = new Elysia()
         if (recieved_fragments >= expected_fragments) {
             console.log("Request denied, task already finished")
             console.log("Recieved fragment " + fragment_i)
-            console.log("----- POST RESPONSE -----\n");
             return;
         }
 
         if (fragments[Number(fragment_i)] == 2) {
             console.log("Request denied, fragment already recieved")
             console.log("Recieved fragment " + fragment_i)
-            console.log("----- POST RESPONSE -----\n");
             return;
         }
 
         recieved_fragments++;
         fragments[Number(fragment_i)] = FragmentStates.RECIEVED;
 
-        console.log("Recieved fragment " + fragment_i);
-        console.log("Total fragments: " + recieved_fragments);
-        console.log("Expected fragments: " + expected_fragments);
+        console.log(get_time_now() + " Recieved fragment " + fragment_i + " -- Total fragments: " + recieved_fragments + "/" + expected_fragments);
 
         try {
             await Bun.write(`output/${fragment_i}.bmp`, data);
@@ -181,10 +171,8 @@ const app = new Elysia()
             initializing = false;
 
             finalize();
-            console.log("----- POST RESPONSE -----\n");
             return;
         }
-        console.log("----- POST RESPONSE -----\n");
     })
 
     .get("/init", async () => {
@@ -230,114 +218,130 @@ const app = new Elysia()
 console.log(`Elysia connected, live on port ${app.server?.port}`);
 
 for await (const line of console) {
-    if (line == "init") {
+    switch (line) {
+        case "init":
+            {
+                const f_params = Bun.file("params.txt");
+                const params = (await f_params.text()).split(",");
 
-        const f_params = Bun.file("params.txt");
-        const params = (await f_params.text()).split(",");
+                width = BigInt(params[0]);
+                height = BigInt(params[1]);
 
-        width = BigInt(params[0]);
-        height = BigInt(params[1]);
+                target_x_m = BigInt(params[2]);
+                target_x_n = BigInt(params[3]);
 
-        target_x_m = BigInt(params[2]);
-        target_x_n = BigInt(params[3]);
+                target_y_m = BigInt(params[4]);
+                target_y_n = BigInt(params[5]);
 
-        target_y_m = BigInt(params[4]);
-        target_y_n = BigInt(params[5]);
+                range_m = BigInt(params[6]);
+                range_n = BigInt(params[7]);
 
-        range_m = BigInt(params[6]);
-        range_n = BigInt(params[7]);
+                max_iteration = BigInt(params[8]);
 
-        max_iteration = BigInt(params[8]);
+                expected_fragments = BigInt(params[9]);
+                recieved_fragments = 0;
 
-        expected_fragments = BigInt(params[9]);
-        recieved_fragments = 0;
+                for (let i = 0; i < expected_fragments; i++) {
+                    fragments[i] = 0;
+                }
 
-        for (let i = 0; i < expected_fragments; i++) {
-            fragments[i] = 0;
-        }
+                start_time = Date.now();
 
-        start_time = Date.now();
+                padding = 4n - (((bits_per_pixel / 8n) * width) % 4n);
+                total_padding = padding * height;
+                image_size = (bits_per_pixel / 8n) * (width * height) + total_padding;
+                file_size = total_header_size + image_size + total_padding + color_count * 4n;
 
-        padding = 4n - (((bits_per_pixel / 8n) * width) % 4n);
-        total_padding = padding * height;
-        image_size = (bits_per_pixel / 8n) * (width * height) + total_padding;
-        file_size = total_header_size + image_size + total_padding + color_count * 4n;
+                const buffer = new ArrayBuffer(Number(total_header_size + color_count * 4n));
+                const array = new Uint8Array(buffer);
 
-        const buffer = new ArrayBuffer(Number(total_header_size + color_count * 4n));
-        const array = new Uint8Array(buffer);
+                /* identifier */
+                array[0] = 0x42;
+                array[1] = 0x4D;
 
-        /* identifier */
-        array[0] = 0x42;
-        array[1] = 0x4D;
+                /* File size in bytes */
 
-        /* File size in bytes */
+                write_bigint_to_array(array, 2, file_size);
 
-        write_bigint_to_array(array, 2, file_size);
+                /* Reserved field */
+                write_bigint_to_array(array, 6, 0n);
 
-        /* Reserved field */
-        write_bigint_to_array(array, 6, 0n);
+                /* Offset to image data, bytes */
+                write_bigint_to_array(array, 10, image_data_offset);
 
-        /* Offset to image data, bytes */
-        write_bigint_to_array(array, 10, image_data_offset);
+                /* Header size in bytes */
+                write_bigint_to_array(array, 14, 40n);
 
-        /* Header size in bytes */
-        write_bigint_to_array(array, 14, 40n);
+                /* Width of image */
+                write_bigint_to_array(array, 18, width);
 
-        /* Width of image */
-        write_bigint_to_array(array, 18, width);
+                /* Height of image */
+                write_bigint_to_array(array, 22, height);
 
-        /* Height of image */
-        write_bigint_to_array(array, 22, height);
+                /* Number of colour planes */
+                array[26] = 1;
+                array[27] = 0;
 
-        /* Number of colour planes */
-        array[26] = 1;
-        array[27] = 0;
+                /* Bits per pixel */
+                array[28] = Number(bits_per_pixel);
+                array[29] = 0;
 
-        /* Bits per pixel */
-        array[28] = Number(bits_per_pixel);
-        array[29] = 0;
+                /* Compression type */
+                write_bigint_to_array(array, 30, 0n);
 
-        /* Compression type */
-        write_bigint_to_array(array, 30, 0n);
+                /* Image size in bytes */
+                write_bigint_to_array(array, 34, image_size);
 
-        /* Image size in bytes */
-        write_bigint_to_array(array, 34, image_size);
+                /* Horizontal pixels per meter */
+                write_bigint_to_array(array, 38, 0n);
 
-        /* Horizontal pixels per meter */
-        write_bigint_to_array(array, 38, 0n);
+                /* Horizontal pixels per meter */
+                write_bigint_to_array(array, 42, 0n);
 
-        /* Horizontal pixels per meter */
-        write_bigint_to_array(array, 42, 0n);
+                /* Number of colours */
+                write_bigint_to_array(array, 46, color_count);
 
-        /* Number of colours */
-        write_bigint_to_array(array, 46, color_count);
+                /* Important colours */
+                write_bigint_to_array(array, 50, 0n);
 
-        /* Important colours */
-        write_bigint_to_array(array, 50, 0n);
+                /* Colour palette */
+                for (let i = 0; i < Number(color_count); i++) {
+                    let writepos = Number(total_header_size) + (i * 4);
+                    array[writepos] = 255 - i;
+                    array[writepos + 1] = 255 - i;
+                    array[writepos + 2] = 255 - i;
+                    array[writepos + 3] = 0;
+                }
 
-        /* Colour palette */
-        for (let i = 0; i < Number(color_count); i++) {
-            let writepos = Number(total_header_size) + (i * 4);
-            array[writepos] = 255 - i;
-            array[writepos + 1] = 255 - i;
-            array[writepos + 2] = 255 - i;
-            array[writepos + 3] = 0;
-        }
+                try {
+                    await Bun.write("output/final.bmp", array);
 
-        try {
-            await Bun.write("output/final.bmp", array);
+                    console.log("Image header successfully written");
+                }
+                catch (err) {
+                    console.log("Write failed:");
+                    console.log(err);
+                }
 
-            console.log("Image header successfully written");
-        }
-        catch (err) {
-            console.log("Write failed:");
-            console.log(err);
-        }
+                initializing = true;
+            } break;
 
-        initializing = true;
-    }
+        case "begin":
+            if (initializing) {
+                working = true;
+            }
+            else {
+                console.log("ERROR: Not initialized");
+            } break;
 
-    if (line == "begin") {
-        working = true;
+        case "exit":
+            {
+                console.log("Shutting down...");
+                process.exit(0);
+            } break;
+
+        default:
+            console.log(`Unknown command: "${line}"`);
+            break;
     }
 }
